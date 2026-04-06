@@ -1,0 +1,168 @@
+"use client";
+import React from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { ChevronLeft, ChevronRight, Search, Filter } from 'lucide-react';
+import Header from '@/app/_components/header';
+import Footer from '@/app/_components/footer';
+import WhatsAppButton from '@/app/_components/whatsapp-button';
+import SponsorBannerCarousel from '@/app/_components/sponsor-banner-carousel';
+import { useLanguage } from '@/lib/i18n/language-context';
+import { useTranslatedArticles } from '@/hooks/use-translated-articles';
+import type { TranslationKey } from '@/lib/i18n/translations';
+
+const CATEGORIES: { labelKey: TranslationKey; value: string }[] = [
+  { labelKey: 'articles.allCategories', value: '' },
+  { labelKey: 'category.news', value: 'news' },
+  { labelKey: 'category.pro-players', value: 'pro-players' },
+  { labelKey: 'category.enthusiasts', value: 'enthusiasts' },
+  { labelKey: 'category.results', value: 'results' },
+  { labelKey: 'category.events', value: 'events' },
+  { labelKey: 'category.places', value: 'places' },
+  { labelKey: 'category.tips', value: 'tips' },
+  { labelKey: 'category.juniors', value: 'juniors' },
+  { labelKey: 'category.editorial', value: 'editorial' },
+  { labelKey: 'category.magazine', value: 'magazine' },
+];
+
+interface Props {
+  articles: any[];
+  currentPage: number;
+  totalPages: number;
+  query: string;
+  category: string;
+}
+
+export default function ArticlesPageClient({ articles, currentPage, totalPages, query, category }: Props) {
+  const router = useRouter();
+  const { t } = useLanguage();
+  const translated = useTranslatedArticles(articles ?? []);
+  const items = translated ?? [];
+
+  const buildUrl = (params: Record<string, string>) => {
+    const p = new URLSearchParams();
+    Object.entries(params ?? {}).forEach(([k, v]: any) => { if (v) p.set(k, v); });
+    return `/articles?${p.toString()}`;
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-1 bg-white">
+        {/* Page header */}
+        <div className="bg-brand-purple py-10">
+          <div className="max-w-[1200px] mx-auto px-4">
+            <h1 className="text-3xl md:text-4xl font-heading font-bold text-white mb-2">
+              {category === 'places' ? 'Pickleball Places' : t('articles.heading')}
+            </h1>
+            <p className="text-white/60">
+              {category === 'places'
+                ? 'Discover the best pickleball places around the world including courts, clubs, resorts and destinations.'
+                : t('articles.subtitle')}
+            </p>
+          </div>
+        </div>
+
+        {/* Sponsor Banner Carousel */}
+        <SponsorBannerCarousel className="py-6" section={category || 'news'} />
+
+        <div className="max-w-[1200px] mx-auto px-4 py-8">
+          {/* Filters */}
+          <div className="flex flex-col md:flex-row gap-4 mb-8">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Filter size={16} className="text-brand-gray-dark" />
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c.value ?? 'all'}
+                  onClick={() => router.push(buildUrl({ category: c.value ?? '', q: query }))}
+                  className={`px-3 py-1.5 text-sm rounded-full font-semibold transition-all ${
+                    (category ?? '') === (c.value ?? '')
+                      ? 'bg-brand-neon text-brand-purple-dark'
+                      : 'bg-brand-gray text-brand-purple hover:bg-brand-neon/10'
+                  }`}
+                >
+                  {t(c.labelKey)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {items.length === 0 ? (
+            <div className="text-center py-20">
+              <Search size={48} className="text-brand-gray-dark mx-auto mb-4" />
+              <p className="text-brand-gray-dark text-lg">{t('articles.noResults')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {items.map((article: any, i: number) => {
+                const catKey = `category.${article?.category ?? 'news'}` as TranslationKey;
+                return (
+                  <motion.div
+                    key={article?.id ?? i}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                  >
+                    <Link href={`/articles/${article?.slug ?? ''}`} className="group block">
+                      <div className="bg-brand-gray rounded-lg overflow-hidden shadow-sm hover:shadow-lg transition-all">
+                        <div className="relative aspect-[4/3] bg-brand-gray">
+                          {article?.imageUrl && (
+                            <Image src={article.imageUrl} alt={article?.title ?? ''} fill className="object-cover group-hover:scale-105 transition-transform duration-500" style={{ objectPosition: `${article?.focalPointX ?? 50}% ${article?.focalPointY ?? 50}%` }} sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+                          )}
+                          <span className="absolute top-3 left-3 px-2 py-1 bg-brand-neon text-brand-purple-dark text-[10px] font-bold uppercase tracking-wider rounded">
+                            {t(catKey)}
+                          </span>
+                        </div>
+                        <div className="p-4">
+                          <h3 className="font-heading font-semibold text-brand-purple group-hover:text-brand-neon transition-colors line-clamp-2 mb-2">
+                            {article?.title ?? ''}
+                          </h3>
+                          {article?.excerpt && <p className="text-sm text-brand-gray-dark line-clamp-2 mb-2">{article.excerpt}</p>}
+                        </div>
+                      </div>
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-10">
+              <button
+                onClick={() => router.push(buildUrl({ category, q: query, page: String(Math.max(1, currentPage - 1)) }))}
+                disabled={currentPage <= 1}
+                className="p-2 rounded bg-brand-gray hover:bg-brand-neon hover:text-brand-purple-dark disabled:opacity-30 transition-all"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              {Array.from({ length: totalPages }, (_, i: number) => i + 1).map((p: number) => (
+                <button
+                  key={p}
+                  onClick={() => router.push(buildUrl({ category, q: query, page: String(p) }))}
+                  className={`w-10 h-10 rounded font-bold text-sm transition-all ${
+                    p === currentPage ? 'bg-brand-neon text-brand-purple-dark' : 'bg-brand-gray text-brand-purple hover:bg-brand-neon/10'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                onClick={() => router.push(buildUrl({ category, q: query, page: String(Math.min(totalPages, currentPage + 1)) }))}
+                disabled={currentPage >= totalPages}
+                className="p-2 rounded bg-brand-gray hover:bg-brand-neon hover:text-brand-purple-dark disabled:opacity-30 transition-all"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
+      <WhatsAppButton phoneNumber={null} />
+    </div>
+  );
+}
