@@ -1,0 +1,199 @@
+export const dynamic = "force-dynamic";
+
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import sharp from 'sharp';
+import path from 'path';
+
+const OG_WIDTH = 1200;
+const OG_HEIGHT = 630;
+
+/**
+ * OG Image proxy endpoint — optimised for WhatsApp & social-media crawlers.
+ *
+ * Usage:  /api/og-image?slug=my-article-slug
+ *
+ * 1. Looks up the article's featured image in the DB.
+ * 2. Downloads the original from S3.
+ * 3. Resizes / crops it to exactly 1200 × 630 (landscape, centre-crop)
+ *    using `sharp`.  This is critical because:
+ *    - Many article images are **vertical / portrait** (e.g. 1545 × 2000).
+ *    - WhatsApp rejects or ignores portrait images and falls back to the
+ *      site-level og:image (the generic Dink logo).
+ *    - The og:image:width / og:image:height tags already declare 1200 × 630,
+ *      so the actual pixels must match.
+ * 4. Serves the result with proper Content-Type and **without**
+ *    Content-Disposition: attachment (which S3 sets on user uploads).
+ *
+ * The response is cached for 7 days to avoid hitting S3 + sharp on
+ * every crawler request.
+ */
+export async function GET(request: NextRequest) {
+  const slug = request.nextUrl.searchParams.get('slug');
+  const type = request.nextUrl.searchParams.get('type') ?? 'article'; // 'article' | 'magazine'
+
+  if (!slug) {
+    return NextResponse.json({ error: 'Missing slug parameter' }, { status: 400 });
+  }
+
+  const siteUrl = (process.env.NEXTAUTH_URL ?? 'https://dink-authority-magaz-nlc0mg.abacusai.app').replace(/\/+$/, '');
+
+  try {
+    let rawImageUrl: string | null = null;
+    let focalX = 50;
+    let focalY = 50;
+
+    if (type === 'magazine') {
+      const edition = await prisma.magazineEdition.findFirst({
+        where: { slug },
+        select: { coverUrl: true },
+      });
+      rawImageUrl = edition?.coverUrl ?? null;
+      // Magazine covers have no focal point — always centre crop
+    } else {
+      const article = await prisma.article.findUnique({
+        where: { slug },
+        select: { imageUrl: true, focalPointX: true, focalPointY: true },
+      });
+      rawImageUrl = article?.imageUrl ?? null;
+      focalX = article?.focalPointX ?? 50;
+      focalY = article?.focalPointY ?? 50;
+    }
+
+    if (!rawImageUrl) {
+      return NextResponse.redirect(`${siteUrl}/og-image.png`, 302);
+    }
+
+    // Ensure absolute URL
+    const imageUrl = rawImageUrl.startsWith('http')
+      ? rawImageUrl
+      : `${siteUrl}${rawImageUrl}`;
+
+    // Fetch the original image from S3
+    const imgResponse = await fetch(imageUrl, {
+      headers: { 'Accept': 'image/*' },
+    });
+
+    if (!imgResponse.ok) {
+      return NextResponse.redirect(`${siteUrl}/og-image.png`, 302);
+    }
+
+    const originalBuffer = Buffer.from(await imgResponse.arrayBuffer());
+
+    let resizedBuffer: Buffer;
+
+    if (type === 'magazine') {
+      // Magazine covers are typically portrait — compose on branded background
+      // instead of aggressively cropping to landscape.
+      const coverResized = await sharp(originalBuffer)
+        .resize({
+          height: OG_HEIGHT - 60,   // 570px tall, leave padding
+          withoutEnlargement: true,
+          fit: 'inside',
+        })
+        .toBuffer();
+
+      const coverMeta = await sharp(coverResized).metadata();
+      const coverW = coverMeta.width ?? 380;
+      const coverH = coverMeta.height ?? 570;
+
+      // Load the white logo for branding
+      const logoPath = path.join(process.cwd(), 'public', 'images', 'dink-authority-logo-white.png');
+      let logoBuffer: Buffer | null = null;
+      try {
+        logoBuffer = await sharp(logoPath).resize({ width: 280, withoutEnlargement: true }).png().toBuffer();
+      } catch { /* logo optional */ }
+
+      // Dark branded background
+      const layers: sharp.OverlayOptions[] = [];
+
+      // Position cover on the left side with padding
+      const coverLeft = 60;
+      const coverTop = Math.round((OG_HEIGHT - coverH) / 2);
+      layers.push({ input: coverResized, left: coverLeft, top: coverTop });
+
+      // Add a subtle white border/shadow around the cover
+      const borderSvg = Buffer.from(
+        `<svg width="${coverW + 4}" height="${coverH + 4}">
+          <rect x="0" y="0" width="${coverW + 4}" height="${coverH + 4}" rx="4" ry="4"
+                fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
+        </svg>`
+      );
+      layers.push({ input: borderSvg, left: coverLeft - 2, top: coverTop - 2 });
+
+      // Right side: logo + "THE VOICE OF PICKLEBALL" text
+      const rightX = coverLeft + coverW + 60;
+      const textAreaW = OG_WIDTH - rightX - 40;
+
+      if (logoBuffer && textAreaW > 100) {
+        const logoMeta = await sharp(logoBuffer).metadata();
+        const logoW = Math.min(logoMeta.width ?? 280, textAreaW);
+        const scaledLogo = await sharp(logoBuffer).resize({ width: logoW, withoutEnlargement: true }).png().toBuffer();
+        const scaledLogoMeta = await sharp(scaledLogo).metadata();
+        const logoH = scaledLogoMeta.height ?? 60;
+        // Centre logo vertically on the right half
+        const logoTop = Math.round(OG_HEIGHT / 2 - logoH / 2);
+        layers.push({ input: scaledLogo, left: rightX, top: Math.max(logoTop, 30) });
+
+        // Decorative accent line below logo (no text — sharp has no font access)
+        const lineW = Math.min(logoW, 200);
+        const lineSvg = Buffer.from(
+          `<svg width="${lineW}" height="3">
+            <rect x="0" y="0" width="${lineW}" height="3" rx="1.5" fill="rgba(57,255,20,0.5)"/>
+          </svg>`
+        );
+        const lineLeft = rightX + Math.round((logoW - lineW) / 2);
+        layers.push({ input: lineSvg, left: lineLeft, top: Math.max(logoTop, 30) + logoH + 14 });
+      }
+
+      resizedBuffer = await sharp({
+        create: {
+          width: OG_WIDTH,
+          height: OG_HEIGHT,
+          channels: 4,
+          background: { r: 9, g: 4, b: 38, alpha: 1 },  // #090426
+        },
+      })
+        .composite(layers)
+        .jpeg({ quality: 90, progressive: true })
+        .toBuffer();
+    } else {
+      // Articles: standard cover crop with focal point
+      resizedBuffer = await sharp(originalBuffer)
+        .resize(OG_WIDTH, OG_HEIGHT, {
+          fit: 'cover',
+          position: focalPointToGravity(focalX, focalY),
+        })
+        .jpeg({ quality: 85, progressive: true })
+        .toBuffer();
+    }
+
+    return new NextResponse(resizedBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': String(resizedBuffer.byteLength),
+        'Cache-Control': 'public, max-age=604800, s-maxage=604800, stale-while-revalidate=3600',
+      },
+    });
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : '';
+    console.error(`[og-image] Error for type=${type} slug=${slug}: ${errMsg}`);
+    if (errStack) console.error(`[og-image] Stack: ${errStack}`);
+    const fallbackUrl = `${siteUrl}/og-image.png`;
+    return NextResponse.redirect(fallbackUrl, 302);
+  }
+}
+
+/**
+ * Convert focal-point percentages (0-100) to a sharp gravity string.
+ * sharp accepts: north, northeast, east, southeast, south, southwest, west, northwest, centre, entropy, attention
+ * We map the focal-point into a 3×3 grid → one of the 9 compass positions.
+ */
+function focalPointToGravity(x: number, y: number): string {
+  const col = x < 33 ? 'west' : x > 66 ? 'east' : '';
+  const row = y < 33 ? 'north' : y > 66 ? 'south' : '';
+  if (!col && !row) return 'centre';
+  return `${row}${col}` || 'centre';
+}
