@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 213 70% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 70% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 70% 10%;
+  --primary: 220 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 32% 96%;
+  --secondary-foreground: 220 70% 10%;
+  --muted: 214 20% 95%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 193 100% 50%;
+  --accent-foreground: 220 70% 10%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 20% 90%;
+  --input: 214 20% 90%;
+  --ring: 220 100% 50%;
+  --radius: 0.5rem;
+  --chart-1: 220 100% 50%;
+  --chart-2: 193 100% 50%;
+  --chart-3: 220 60% 50%;
+  --chart-4: 20 95% 53%;
+  --chart-5: 214 30% 60%;
+}
+
+[data-hydration-error] {
+  display: none !important;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  font-family: var(--font-heading), system-ui, sans-serif;
+  color: #090426;
+}
+
+.prose p {
+  line-height: 1.8;
+  margin-bottom: 1.2em;
+}
+
+.prose img {
+  border-radius: 4px;
+}
+
+.neon-glow {
+  text-shadow: 0 0 10px rgba(57, 255, 20, 0.5), 0 0 20px rgba(57, 255, 20, 0.3);
+}
+
+.neon-border {
+  box-shadow: 0 0 5px rgba(57, 255, 20, 0.3), 0 0 10px rgba(57, 255, 20, 0.1);
+}
+
+.blue-gradient {
+  background: linear-gradient(135deg, #090426 0%, #130A3A 100%);
+}
+
+.neon-gradient {
+  background: linear-gradient(135deg, #39FF14 0%, #2ED811 100%);
+}
+
+.accent-gradient {
+  background: linear-gradient(135deg, #0052FF 0%, #39FF14 100%);
+}
+
+.sport-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sport-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(57, 255, 20, 0.12);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
